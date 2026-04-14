@@ -11,6 +11,111 @@ let s:locations = []
 
 let s:supported_filetypes = {'go': 1, 'python': 1, 'rust': 1}
 
+" Yank helpers — copy a file reference to the system clipboard so the user
+" can paste into an external Claude Code / chat session. No CLI dependency.
+
+function! s:repo_relative(file) abort
+  let l:dir = fnamemodify(a:file, ':h')
+  let l:top = trim(system('git -C ' . shellescape(l:dir) . ' rev-parse --show-toplevel 2>/dev/null'))
+  if v:shell_error != 0 || empty(l:top)
+    return a:file
+  endif
+  let l:rel = substitute(a:file, '^' . escape(l:top, '\') . '/', '', '')
+  return l:rel
+endfunction
+
+function! s:enclosing_name() abort
+  let l:patterns = {
+        \ 'go':     '^\s*func\s\+\(([^)]*)\s*\)\?\zs\w\+',
+        \ 'python': '^[ \t]*\(async\s\+\)\?def\s\+\zs\w\+',
+        \ 'rust':   '^[ \t]*\(pub\(\s*([^)]*)\s*\)\?\s\+\)\?\(async\s\+\)\?fn\s\+\zs\w\+',
+        \ }
+  let l:pat = get(l:patterns, &filetype, '')
+  if empty(l:pat)
+    return ''
+  endif
+  for l:i in range(line('.'), 1, -1)
+    let l:m = matchstr(getline(l:i), l:pat)
+    if !empty(l:m)
+      return l:m
+    endif
+  endfor
+  return ''
+endfunction
+
+function! s:yank(text, label) abort
+  let @+ = a:text
+  let @* = a:text
+  echom 'callgraph: yanked ' . a:label . ': ' . a:text
+endfunction
+
+function! callgraph#yank_file() abort
+  call s:yank(s:repo_relative(expand('%:p')), 'file')
+endfunction
+
+function! callgraph#yank_file_line() abort
+  call s:yank(s:repo_relative(expand('%:p')) . ':' . line('.'), 'file:line')
+endfunction
+
+function! callgraph#yank_file_method() abort
+  let l:name = s:enclosing_name()
+  let l:ref  = s:repo_relative(expand('%:p'))
+  if !empty(l:name)
+    let l:ref .= ' ' . l:name
+  endif
+  call s:yank(l:ref, 'file method')
+endfunction
+
+" Free-form LLM prompt. Reads a question from the user, optionally rewrites
+" leading "in this {file,method,line}," into an explicit context line, then
+" pipes the prompt to the configured LLM CLI and shows the response.
+function! callgraph#prompt() abort
+  let l:question = input('Ask: ')
+  if empty(l:question)
+    return
+  endif
+
+  let l:context = ''
+  let l:body    = l:question
+  let l:rel     = s:repo_relative(expand('%:p'))
+
+  if l:question =~? '^in this file,'
+    let l:context = 'Context: ' . l:rel
+    let l:body    = substitute(l:question, '^\s*in this file,\s*', '', 'i')
+  elseif l:question =~? '^in this method,'
+    let l:name    = s:enclosing_name()
+    let l:context = 'Context: ' . l:rel . (empty(l:name) ? '' : ' ' . l:name)
+    let l:body    = substitute(l:question, '^\s*in this method,\s*', '', 'i')
+  elseif l:question =~? '^in this line,'
+    let l:context = 'Context: ' . l:rel . ':' . line('.')
+    let l:body    = substitute(l:question, '^\s*in this line,\s*', '', 'i')
+  endif
+
+  let l:prompt = empty(l:context) ? l:body : l:context . "\n\n" . l:body
+  let l:cli    = get(g:, 'callgraph_llm_cmd', 'claude -p')
+
+  redraw | echom 'callgraph: asking...'
+  let l:raw = system(l:cli, l:prompt)
+  if v:shell_error != 0
+    echohl ErrorMsg
+    echom 'callgraph: ' . substitute(l:raw, '\n', ' ', 'g')
+    echohl None
+    return
+  endif
+
+  let l:lines = split(substitute(l:raw, '\n\+$', '', ''), '\n')
+  if empty(l:lines)
+    echom 'callgraph: empty response'
+    return
+  endif
+  if has('nvim')
+    call s:show_text_float(l:lines, ' Ask ')
+  else
+    call s:show_text_popup(l:lines, ' Ask ')
+  endif
+  echo ''
+endfunction
+
 function! callgraph#show(...) abort
   let l:direction = a:0 >= 1 ? a:1 : 'callers'
 
