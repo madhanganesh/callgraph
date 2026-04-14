@@ -28,6 +28,12 @@ jobs:
       - name: Install rust-analyzer
         run: rustup component add rust-analyzer
 
+      - name: Warm Rust fixtures
+        run: |
+          for d in test/rust/testdata/simple test/rust/testdata/multifile test/rust/testdata/multipkg; do
+            (cd "$d" && cargo check)
+          done
+
       - name: Vet
         run: go vet ./...
 
