@@ -1,3 +1,4 @@
 callgraph
 *.test
 .DS_Store
+.claude/
