@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/madhanganesh/callgraph/internal/classify"
 )
 
 // Rust implements Language for Rust source files.
@@ -89,6 +91,36 @@ func (Rust) LSPCommand() []string {
 
 func (Rust) LanguageID() string {
 	return "rust"
+}
+
+// rustThreadSpawn matches call-site lines that spawn a thread or async task.
+// Covers std::thread::spawn, thread::spawn, tokio::spawn, async_std::task::spawn,
+// rayon::spawn, and tokio::task::spawn / spawn_blocking.
+var rustThreadSpawn = regexp.MustCompile(`\b((std::)?thread::spawn|tokio::(task::)?spawn(_blocking)?|async_std::task::spawn|rayon::spawn)\s*\(`)
+
+func (Rust) ThreadSpawnPattern() *regexp.Regexp { return rustThreadSpawn }
+
+// Rules match the qualified target "<crate>::<name>" — rust-analyzer puts the
+// containing module path in CallHierarchyItem.Detail.
+func (Rust) ClassifyRules() []classify.Rule {
+	return []classify.Rule{
+		// HTTP clients.
+		classify.MustRule(classify.KindAPI, `^reqwest::`),
+		classify.MustRule(classify.KindAPI, `^hyper::`),
+		classify.MustRule(classify.KindAPI, `^surf::`),
+		classify.MustRule(classify.KindAPI, `^isahc::`),
+		classify.MustRule(classify.KindAPI, `^ureq::`),
+
+		// Databases.
+		classify.MustRule(classify.KindDB, `^sqlx::`),
+		classify.MustRule(classify.KindDB, `^diesel::`),
+		classify.MustRule(classify.KindDB, `^tokio_postgres::`),
+		classify.MustRule(classify.KindDB, `^postgres::`),
+		classify.MustRule(classify.KindDB, `^rusqlite::`),
+		classify.MustRule(classify.KindDB, `^mongodb::`),
+		classify.MustRule(classify.KindDB, `^redis::`),
+		classify.MustRule(classify.KindDB, `^sea_orm::`),
+	}
 }
 
 // crateName extracts the crate name from Cargo.toml, falling back to the

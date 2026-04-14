@@ -135,6 +135,49 @@ func (c *Client) IncomingCalls(item CallHierarchyItem) ([]CallHierarchyIncomingC
 	return calls, nil
 }
 
+// OutgoingCalls returns the callees (functions called by) the given item.
+func (c *Client) OutgoingCalls(item CallHierarchyItem) ([]CallHierarchyOutgoingCall, error) {
+	result, err := c.call("callHierarchy/outgoingCalls", CallHierarchyOutgoingCallsParams{
+		Item: item,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var calls []CallHierarchyOutgoingCall
+	if err := json.Unmarshal(result, &calls); err != nil {
+		return nil, fmt.Errorf("unmarshal outgoingCalls: %w", err)
+	}
+	return calls, nil
+}
+
+// Implementation returns the implementation locations for the symbol at the
+// given position. Used to detect interface methods and offer a picker.
+// Position is 0-based.
+func (c *Client) Implementation(uri string, line, col int) ([]Location, error) {
+	result, err := c.call("textDocument/implementation", TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     Position{Line: line, Character: col},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(result) == 0 || string(result) == "null" {
+		return nil, nil
+	}
+
+	// Server may return Location | Location[] | LocationLink[]. Try array first.
+	var locs []Location
+	if err := json.Unmarshal(result, &locs); err == nil {
+		return locs, nil
+	}
+	var single Location
+	if err := json.Unmarshal(result, &single); err == nil {
+		return []Location{single}, nil
+	}
+	return nil, fmt.Errorf("unmarshal implementation: unexpected shape")
+}
+
 // Close performs a graceful LSP shutdown and kills gopls.
 func (c *Client) Close() {
 	// Best-effort shutdown with a timeout so we don't hang.

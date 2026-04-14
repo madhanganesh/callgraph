@@ -17,8 +17,20 @@ type Node struct {
 	Pkg     string  `json:"pkg"`
 	File    string  `json:"file"`
 	Line    int     `json:"line"`
-	Callers []*Node `json:"callers,omitempty"`
+	Kind    int     `json:"kind,omitempty"`
+	Detail  string  `json:"detail,omitempty"`
+	Callers         []*Node `json:"callers,omitempty"`
+	Callees         []*Node `json:"callees,omitempty"`
+	Implementations []*Node `json:"implementations,omitempty"`
 }
+
+// Classify.Kind values mirrored for test assertions.
+const (
+	KindPlain  = 0
+	KindAPI    = 1
+	KindDB     = 2
+	KindThread = 3
+)
 
 // BuildBinary compiles the callgraph CLI into dir and returns the binary path.
 // Suitable for calling from TestMain where no *testing.T is available.
@@ -38,13 +50,23 @@ func RepoRoot() string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
-// Run invokes the binary with --format=json and decodes the tree.
+// Run invokes the binary for upward (caller) traversal with --format=json.
 func Run(t *testing.T, bin, file string, line, col int) *Node {
+	return runDirection(t, bin, file, line, col, "callers")
+}
+
+// RunCallees invokes the binary for downward (callee) traversal.
+func RunCallees(t *testing.T, bin, file string, line, col int) *Node {
+	return runDirection(t, bin, file, line, col, "callees")
+}
+
+func runDirection(t *testing.T, bin, file string, line, col int, direction string) *Node {
 	t.Helper()
 	args := []string{
 		"--file=" + file,
 		"--line=" + strconv.Itoa(line),
 		"--col=" + strconv.Itoa(col),
+		"--direction=" + direction,
 		"--format=json",
 	}
 	out, err := exec.Command(bin, args...).Output()
@@ -74,6 +96,15 @@ func CollectCallerNames(root *Node) map[string]bool {
 	}
 	walk(root)
 	return seen
+}
+
+// CalleesByName returns direct callees keyed by function name.
+func CalleesByName(root *Node) map[string]*Node {
+	m := map[string]*Node{}
+	for _, c := range root.Callees {
+		m[c.Name] = c
+	}
+	return m
 }
 
 // SkipIfMissing skips the test if `name` is not on $PATH.

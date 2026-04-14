@@ -1,7 +1,9 @@
 # callgraph
 
-CLI tool + Vim plugin that shows the upward call graph (callers) of a function.
-Supports Go, Python, and Rust via LSP.
+CLI tool + Vim plugin that shows the call graph of a function, in either
+direction: upward (callers, incoming) or downward (callees, outgoing).
+Supports Go, Python, and Rust via LSP. Downward mode also classifies nodes
+by kind (API 🌐, DB 🛢️, thread 🧵) — currently Go-only.
 
 ## Project status
 

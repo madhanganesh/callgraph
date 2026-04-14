@@ -6,7 +6,10 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"github.com/madhanganesh/callgraph/internal/classify"
 )
 
 // GoLang implements Language for Go source files.
@@ -66,6 +69,36 @@ func (GoLang) LSPCommand() []string {
 
 func (GoLang) LanguageID() string {
 	return "go"
+}
+
+// goThreadSpawn matches a line whose first statement begins with `go ` — i.e.
+// the call on that line starts a new goroutine. `go func() { ... }()` and
+// `go foo()` both match.
+var goThreadSpawn = regexp.MustCompile(`^\s*go\s+\S`)
+
+func (GoLang) ThreadSpawnPattern() *regexp.Regexp {
+	return goThreadSpawn
+}
+
+// Classification rules match the qualified target string "<pkg>.<Name>" that
+// callgraph builds from gopls's CallHierarchyItem (e.g. "net/http.Get",
+// "database/sql.Exec"). We don't see receiver types, so DB/API rules key on
+// package path plus a common method-name allowlist.
+func (GoLang) ClassifyRules() []classify.Rule {
+	return []classify.Rule{
+		// HTTP clients (stdlib and popular libraries).
+		classify.MustRule(classify.KindAPI, `^net/http\.(Get|Post|Head|PostForm|Do|NewRequest|NewRequestWithContext)$`),
+		classify.MustRule(classify.KindAPI, `^github\.com/go-resty/resty`),
+		classify.MustRule(classify.KindAPI, `^github\.com/hashicorp/go-retryablehttp`),
+
+		// Database drivers / ORMs — any call into these packages counts.
+		classify.MustRule(classify.KindDB, `^database/sql\.(Query|QueryRow|Exec|Prepare|Ping|Begin|Commit|Rollback)(Context)?$`),
+		classify.MustRule(classify.KindDB, `^gorm\.io/gorm`),
+		classify.MustRule(classify.KindDB, `^github\.com/jackc/pgx`),
+		classify.MustRule(classify.KindDB, `^github\.com/jmoiron/sqlx`),
+		classify.MustRule(classify.KindDB, `^go\.mongodb\.org/mongo-driver`),
+		classify.MustRule(classify.KindDB, `^github\.com/redis/go-redis`),
+	}
 }
 
 // goPkgName reads just the package declaration from a Go source file.

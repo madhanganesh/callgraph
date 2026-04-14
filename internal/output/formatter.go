@@ -5,11 +5,64 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/madhanganesh/callgraph/internal/classify"
 	"github.com/madhanganesh/callgraph/internal/graph"
 )
 
+func calleeLabel(node *graph.Node) string {
+	icon := node.Kind.Icon()
+	if node.Kind == classify.KindAPI && node.Detail != "" {
+		return icon + strings.ToUpper(node.Name) + " " + node.Detail
+	}
+	if node.Kind == classify.KindDB {
+		if node.Detail != "" {
+			return icon + node.Name + " → " + node.Detail
+		}
+		return icon + node.Name
+	}
+	label := fmt.Sprintf("%s%s (%s)", icon, node.Name, node.Pkg)
+	if node.Detail != "" {
+		label += " → " + node.Detail
+	}
+	return label
+}
+
 // maxLineWidth is the width at which package names get trimmed.
 const maxLineWidth = 80
+
+// FormatCalleeTree returns a top-down tree of outgoing calls. Unlike the
+// caller tree, there is no path reversal — the root IS the starting function
+// and children descend into callees. Icons are prepended by Kind.
+func FormatCalleeTree(node *graph.Node) string {
+	var sb strings.Builder
+	writeCalleeNode(&sb, node, "", true, true)
+	return sb.String()
+}
+
+func writeCalleeNode(sb *strings.Builder, node *graph.Node, prefix string, isLast, isRoot bool) {
+	label := calleeLabel(node)
+
+	var line string
+	if isRoot {
+		line = label
+	} else {
+		line = prefix + "|__ " + label
+	}
+	fmt.Fprintf(sb, "%s\n", line)
+
+	var childPrefix string
+	if isRoot {
+		childPrefix = "  "
+	} else if isLast {
+		childPrefix = prefix + "    "
+	} else {
+		childPrefix = prefix + "|   "
+	}
+
+	for i, child := range node.Callees {
+		writeCalleeNode(sb, child, childPrefix, i == len(node.Callees)-1, false)
+	}
+}
 
 // FormatJSON returns the caller tree as indented JSON.
 func FormatJSON(node *graph.Node) string {

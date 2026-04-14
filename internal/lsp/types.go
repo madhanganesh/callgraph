@@ -105,3 +105,19 @@ type CallHierarchyIncomingCall struct {
 	From       CallHierarchyItem `json:"from"`
 	FromRanges []Range           `json:"fromRanges"`
 }
+
+type CallHierarchyOutgoingCallsParams struct {
+	Item CallHierarchyItem `json:"item"`
+}
+
+type CallHierarchyOutgoingCall struct {
+	To         CallHierarchyItem `json:"to"`
+	FromRanges []Range           `json:"fromRanges"`
+}
+
+// --- Implementation ---
+
+type Location struct {
+	URI   string `json:"uri"`
+	Range Range  `json:"range"`
+}

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/madhanganesh/callgraph/internal/classify"
 )
 
 // Python implements Language for Python source files.
@@ -76,4 +78,30 @@ func (Python) LSPCommand() []string {
 
 func (Python) LanguageID() string {
 	return "python"
+}
+
+// pyThreadSpawn matches call-site lines that start a new thread / task.
+// Covers threading.Thread(...), Thread(...), asyncio.create_task(...),
+// multiprocessing.Process(...), and concurrent.futures executor.submit(...).
+var pyThreadSpawn = regexp.MustCompile(`\b(threading\.Thread|Thread|asyncio\.create_task|create_task|multiprocessing\.Process|Process|\.submit)\s*\(`)
+
+func (Python) ThreadSpawnPattern() *regexp.Regexp { return pyThreadSpawn }
+
+// Rules match the qualified target "<module>.<name>" pyright provides via
+// CallHierarchyItem.Detail, with a fallback to the bare name.
+func (Python) ClassifyRules() []classify.Rule {
+	return []classify.Rule{
+		// HTTP clients.
+		classify.MustRule(classify.KindAPI, `^requests\.(get|post|put|delete|patch|head|options|request)$`),
+		classify.MustRule(classify.KindAPI, `^httpx\.(get|post|put|delete|patch|head|options|request|stream)$`),
+		classify.MustRule(classify.KindAPI, `^urllib\.request\.(urlopen|Request)$`),
+		classify.MustRule(classify.KindAPI, `^aiohttp\.`),
+
+		// Databases — DB-API 2.0 cursor methods plus popular ORMs.
+		classify.MustRule(classify.KindDB, `\.(execute|executemany|executescript|fetchone|fetchall|fetchmany)$`),
+		classify.MustRule(classify.KindDB, `^sqlalchemy\.`),
+		classify.MustRule(classify.KindDB, `^psycopg2?\.`),
+		classify.MustRule(classify.KindDB, `^pymongo\.`),
+		classify.MustRule(classify.KindDB, `^redis\.`),
+	}
 }

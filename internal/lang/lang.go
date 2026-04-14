@@ -3,7 +3,10 @@ package lang
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"github.com/madhanganesh/callgraph/internal/classify"
 )
 
 // Language abstracts the language-specific operations needed to build a call
@@ -28,6 +31,15 @@ type Language interface {
 
 	// LanguageID returns the LSP language identifier (e.g. "go", "python", "rust").
 	LanguageID() string
+
+	// ClassifyRules returns the default classification rules for this language.
+	// Return nil if classification is not yet supported.
+	ClassifyRules() []classify.Rule
+
+	// ThreadSpawnPattern returns a regex that matches a call-site line when the
+	// call is made in a new thread/goroutine/async task (e.g. "^\\s*go " for Go).
+	// Return nil if thread detection is not supported.
+	ThreadSpawnPattern() *regexp.Regexp
 }
 
 // Detect returns the Language implementation for the given file based on its
