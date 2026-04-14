@@ -171,6 +171,63 @@ VS Code's Go extension already has `gopls` running. The extension could call `vs
 - [ ] Click-to-navigate to caller.
 - [ ] Publish to VS Code marketplace.
 
+## Extensions beyond the original design
+
+The base design (upward call graph for Go) shipped as Phase 1. Subsequent work added the following, all built on the same CLI-as-engine + thin-plugin pattern.
+
+### Multi-language
+
+Go-only LSP plumbing was abstracted behind a `Language` interface (`internal/lang/`). Go uses `go/ast`; Python and Rust use regex-based heuristics for `EnclosingFunc`. Detection by file extension; project root from `go.mod` / `pyproject.toml` / `Cargo.toml`.
+
+### Downward call graph (callees)
+
+Mirrors the caller side using `callHierarchy/outgoingCalls`. Two design departures from the caller flow:
+
+- **Cursor-rooted, not enclosing-function rooted.** Reading `dw.PlaceOrder(...)` and asking "what does it do?" should resolve `PlaceOrder`, not the function the user happens to be inside.
+- **Classification of leaves.** Each callee is checked against per-language rule sets (`ClassifyRules`) and a thread-spawn regex matched on the call-site line. Classified leaves get an icon (🌐 API, 🛢️ DB, 🧵 thread) and an extracted `Detail` (URL host, SQL table). Unclassified external (stdlib/vendor) callees are dropped as noise; descent stops at any classified or external boundary.
+
+### Interface picker
+
+When the cursor symbol resolves to an interface method, the engine runs `textDocument/implementation`, filters out test fixtures and mocks (`_test.go`, `/mock`, `/fake`, packages containing "mock"/"fake"), then:
+
+- 0 real impls → use the item itself.
+- 1 → auto-resolve and continue.
+- 2+ → return `Implementations` and let the plugin render a picker. The picker re-invokes the CLI rooted at the chosen impl.
+
+The same picker mechanism is reused by the summarize subcommand.
+
+### Summarize subcommand
+
+```
+callgraph summarize --file=... --line=... --col=... [--llm-cmd='claude -p']
+```
+
+Resolves the symbol under cursor via LSP, extracts the function body (Go via `go/parser`, Python via indent, Rust via brace depth), and pipes it to a configurable LLM CLI. JSON output supports the same `implementations` shape so the plugin can re-use the picker for interface methods.
+
+**Two-layer cache** in `os.UserCacheDir()/callgraph/summaries/`:
+
+| Layer | Key | Skips |
+|---|---|---|
+| Position | `sha256(file ‖ line ‖ col ‖ file-content ‖ llmCmd)` | LSP + LLM |
+| Body     | `sha256(llmCmd ‖ prompt-with-function-body)`         | LLM only |
+
+Position cache invalidates on any file edit. Body cache is shared across cursor positions that resolve to the same function.
+
+### Vim quality-of-life
+
+| Mapping | Purpose |
+|---|---|
+| `<leader>cc` / `<leader>cd` | Callers / callees popup |
+| `<leader>cs` | Summarize symbol under cursor |
+| `<leader>cp` | Free-form prompt to LLM; "in this {file,method,line}," prefixes auto-rewrite to a `Context:` line so the LLM gets the reference (no IPC with the user's interactive Claude session) |
+| `<leader>c{f,l,m}` | Yank repo-relative `file` / `file:line` / `file methodname` to system clipboard |
+
+The yank/prompt features are intentionally Vimscript-only — they have no engine side. They exist because Claude Code (running in a sibling terminal) has no IPC for an external editor to inject prompts; copying a reference and pasting is the pragmatic substitute.
+
+### Why no caching at the call-graph layer (yet)
+
+The original design called for caching keyed on `(file, func, git-sha)`. In practice the LSP indexing race (handled by retry loops) and the source cache inside `walkCallees` covered most of the perf gap. A persistent cache may still be worthwhile for very large projects but hasn't been built.
+
 ## Prior Art
 
 - **go-callvis** — full-program call graph visualizer using `go/callgraph`. Heavy but good reference for analysis.
