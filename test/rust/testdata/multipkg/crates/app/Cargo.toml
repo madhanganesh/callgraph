@@ -1,0 +1,11 @@
+[package]
+name = "app"
+version = "0.0.0"
+edition = "2021"
+
+[[bin]]
+name = "app"
+path = "src/main.rs"
+
+[dependencies]
+api = { path = "../api" }

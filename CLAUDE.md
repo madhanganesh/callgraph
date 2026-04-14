@@ -60,8 +60,10 @@ main.go → lang.Detect(file) → Language interface
 ```sh
 go build -o callgraph .
 go vet ./...
+# Integration tests (one package per language, fixtures under test/<lang>/testdata/):
+go test ./test/go/... ./test/python/... ./test/rust/...
 # Smoke test:
-./callgraph --file=testdata/sample/main.go --line=25 --format=tree
+./callgraph --file=test/go/testdata/simple/main.go --line=21 --format=tree
 ```
 
 ## Possible next steps

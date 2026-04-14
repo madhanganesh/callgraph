@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/madhanganesh/callgraph/internal/lang"
@@ -75,6 +76,14 @@ func BuildCallerTree(client *lsp.Client, language lang.Language, file, root stri
 	return rootNode, nil
 }
 
+// isTransientLSPError returns true for errors worth retrying: the server was
+// still indexing, or cancelled our request mid-flight.
+func isTransientLSPError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "-32801") || strings.Contains(msg, "-32802") ||
+		strings.Contains(msg, "content modified") || strings.Contains(msg, "cancelled")
+}
+
 // walkCallers recursively fetches incoming calls and builds the caller tree.
 func walkCallers(client *lsp.Client, language lang.Language, item lsp.CallHierarchyItem, node *Node, depth int, root string, visited map[string]bool) error {
 	if depth <= 0 {
@@ -88,7 +97,17 @@ func walkCallers(client *lsp.Client, language lang.Language, item lsp.CallHierar
 	}
 	visited[key] = true
 
-	calls, err := client.IncomingCalls(item)
+	// The server may still be indexing and return ContentModified (-32801) or
+	// RequestCancelled (-32802). Retry with backoff.
+	var calls []lsp.CallHierarchyIncomingCall
+	var err error
+	for attempt := 0; attempt < 10; attempt++ {
+		calls, err = client.IncomingCalls(item)
+		if err == nil || !isTransientLSPError(err) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err != nil {
 		return fmt.Errorf("incomingCalls(%s): %w", item.Name, err)
 	}

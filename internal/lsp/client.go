@@ -216,7 +216,7 @@ func (c *Client) call(method string, params any) (json.RawMessage, error) {
 	select {
 	case resp := <-ch:
 		if resp.Error != nil {
-			return nil, fmt.Errorf("gopls %s error %d: %s", method, resp.Error.Code, resp.Error.Message)
+			return nil, fmt.Errorf("lsp %s error %d: %s", method, resp.Error.Code, resp.Error.Message)
 		}
 		return resp.Result, nil
 	case <-c.done:

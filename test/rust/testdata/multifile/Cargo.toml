@@ -1,0 +1,8 @@
+[package]
+name = "multifile"
+version = "0.0.0"
+edition = "2021"
+
+[[bin]]
+name = "multifile"
+path = "src/main.rs"

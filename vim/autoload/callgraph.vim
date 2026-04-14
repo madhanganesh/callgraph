@@ -56,10 +56,13 @@ function! callgraph#show() abort
     return
   endif
 
+  " Default selection: leaf of the first call chain (bottom of first branch).
+  let l:initial = s:first_chain_leaf_index(l:tree) + 1
+
   if has('nvim')
-    call s:show_float(l:lines)
+    call s:show_float(l:lines, l:initial)
   else
-    call s:show_popup(l:lines)
+    call s:show_popup(l:lines, l:initial)
   endif
   echo ''
 endfunction
@@ -158,10 +161,25 @@ function! s:write_tree_node(node, prefix, is_last, lines) abort
   endfor
 endfunction
 
+" Count nodes along the first-child path of the first root tree.
+" Returns the 0-based line index of that leaf.
+function! s:first_chain_leaf_index(tree) abort
+  if empty(a:tree)
+    return 0
+  endif
+  let l:idx = 0
+  let l:node = a:tree[0]
+  while !empty(l:node.children)
+    let l:idx += 1
+    let l:node = l:node.children[0]
+  endwhile
+  return l:idx
+endfunction
+
 " ─── Vim 8.2+ popup ─────────────────────────────────────────────────────────
 
-function! s:show_popup(lines) abort
-  call popup_atcursor(a:lines, #{
+function! s:show_popup(lines, initial) abort
+  let l:winid = popup_atcursor(a:lines, #{
         \ border:     [],
         \ padding:    [0, 1, 0, 1],
         \ maxwidth:   80,
@@ -171,6 +189,7 @@ function! s:show_popup(lines) abort
         \ cursorline: 1,
         \ title:      ' Call Graph ',
         \ })
+  call win_execute(l:winid, 'call cursor(' . a:initial . ', 1)')
 endfunction
 
 function! s:popup_filter(winid, key) abort
@@ -207,7 +226,7 @@ endfunction
 
 " ─── Neovim floating window ─────────────────────────────────────────────────
 
-function! s:show_float(lines) abort
+function! s:show_float(lines, initial) abort
   let l:buf = nvim_create_buf(v:false, v:true)
   call nvim_buf_set_lines(l:buf, 0, -1, v:false, a:lines)
 
@@ -236,6 +255,7 @@ function! s:show_float(lines) abort
 
   let l:win = nvim_open_win(l:buf, v:true, l:opts)
 
+  call nvim_win_set_cursor(l:win, [a:initial, 0])
   setlocal cursorline
 
   " Buffer-local mappings
