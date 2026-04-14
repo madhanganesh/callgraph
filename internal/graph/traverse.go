@@ -97,16 +97,22 @@ func walkCallers(client *lsp.Client, language lang.Language, item lsp.CallHierar
 	}
 	visited[key] = true
 
-	// The server may still be indexing and return ContentModified (-32801) or
-	// RequestCancelled (-32802). Retry with backoff.
+	// The server may still be indexing. Retry on transient errors, and a few
+	// times on empty results — rust-analyzer sometimes returns success with
+	// no callers while its index is still warming up.
 	var calls []lsp.CallHierarchyIncomingCall
 	var err error
 	for attempt := 0; attempt < 10; attempt++ {
 		calls, err = client.IncomingCalls(item)
-		if err == nil || !isTransientLSPError(err) {
-			break
+		if err != nil && isTransientLSPError(err) {
+			time.Sleep(500 * time.Millisecond)
+			continue
 		}
-		time.Sleep(500 * time.Millisecond)
+		if err == nil && len(calls) == 0 && attempt < 3 {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		break
 	}
 	if err != nil {
 		return fmt.Errorf("incomingCalls(%s): %w", item.Name, err)
